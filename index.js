@@ -10,6 +10,49 @@ app.get("/", (_req, res) => {
   res.send("Clearscope Creeper is running.");
 });
 
+// Debug endpoint: dumps raw HTML from Research and Outline tabs
+app.post("/debug", async (req, res) => {
+  const { url } = req.body;
+  if (!url || !url.includes("clearscope.io")) {
+    return res.status(400).json({ error: "A valid Clearscope editor URL is required." });
+  }
+
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+
+    // Click Research tab
+    const researchTab = await page.locator('nav[role="tablist"] button', { hasText: "Research" });
+    await researchTab.click();
+    await page.waitForTimeout(3000);
+
+    const researchHTML = await page.evaluate(() => {
+      const pane = document.querySelector("[data-tab-pane-active-value='true']");
+      return pane ? pane.innerHTML : "NO ACTIVE PANE FOUND";
+    });
+
+    // Click Outline tab
+    const outlineTab = await page.locator('nav[role="tablist"] button', { hasText: "Outline" });
+    await outlineTab.click();
+    await page.waitForTimeout(3000);
+
+    const outlineHTML = await page.evaluate(() => {
+      const pane = document.querySelector("[data-tab-pane-active-value='true']");
+      return pane ? pane.innerHTML : "NO ACTIVE PANE FOUND";
+    });
+
+    await browser.close();
+
+    res.json({ researchHTML, outlineHTML });
+  } catch (err) {
+    if (browser) await browser.close();
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Main extraction endpoint
 app.post("/extract", async (req, res) => {
   const { url } = req.body;
   if (!url || !url.includes("clearscope.io")) {
@@ -22,22 +65,8 @@ app.post("/extract", async (req, res) => {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
-    // --- Extract terms (already in the initial HTML) ---
+    // --- Extract terms ---
     const terms = await page.evaluate(() => {
-      const termEls = document.querySelectorAll("[data-editor-target='term']");
-      return Array.from(termEls).map((el) => {
-        const vals = JSON.parse(el.getAttribute("data-sortable-values") || "{}");
-        return {
-          term: vals.primary_variant || "",
-          importance: vals.importance || 0,
-          used: vals.used || false,
-          aiPresence: vals.answer_engine_match_value || 0,
-        };
-      });
-    });
-
-    // --- Extract typical uses from term elements ---
-    const termsWithUses = await page.evaluate(() => {
       const termEls = document.querySelectorAll("[data-editor-target='term']");
       return Array.from(termEls).map((el) => {
         const vals = JSON.parse(el.getAttribute("data-sortable-values") || "{}");
@@ -75,14 +104,12 @@ app.post("/extract", async (req, res) => {
     const questions = await page.evaluate(() => {
       const activePane = document.querySelector("[data-tab-pane-active-value='true']");
       if (!activePane) return [];
-      // Try common patterns: look for list items, question text, headings
       const items = activePane.querySelectorAll("li, [class*='question'], p, div.text-sm");
       const found = [];
       items.forEach((item) => {
         const t = item.textContent.trim();
         if (t && t.endsWith("?")) found.push(t);
       });
-      // Dedupe
       return [...new Set(found)];
     });
 
@@ -94,12 +121,9 @@ app.post("/extract", async (req, res) => {
     const outline = await page.evaluate(() => {
       const activePane = document.querySelector("[data-tab-pane-active-value='true']");
       if (!activePane) return [];
-      // Each competitor block likely has a title and headings list
       const competitors = [];
-      // Try to find competitor sections
       const sections = activePane.querySelectorAll("[class*='vstack'], [class*='competitor'], details, section");
       if (sections.length === 0) {
-        // Fallback: return all text content structured
         return [{ raw: activePane.innerText }];
       }
       sections.forEach((sec) => {
@@ -119,12 +143,7 @@ app.post("/extract", async (req, res) => {
 
     res.json({
       status: "success",
-      data: {
-        terms: termsWithUses,
-        questions,
-        outline,
-        meta,
-      },
+      data: { terms, questions, outline, meta },
     });
   } catch (err) {
     if (browser) await browser.close();
