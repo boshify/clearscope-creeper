@@ -71,6 +71,15 @@ app.post("/extract", async (req, res) => {
         const usesMatch = usesText
           ? usesText.textContent.match(/Typical uses:\s*(\d+)-(\d+)/)
           : null;
+
+        // Secondary variants are in the hidden dropdown panel
+        let secondaryVariants = "";
+        const dropdown = el.querySelector("[data-dropdown-target='container']");
+        if (dropdown) {
+          const italicEl = dropdown.querySelector(".italic.text-on-surface-variant");
+          if (italicEl) secondaryVariants = italicEl.textContent.trim();
+        }
+
         return {
           term: vals.primary_variant || "",
           importance: vals.importance || 0,
@@ -78,6 +87,7 @@ app.post("/extract", async (req, res) => {
           aiPresence: vals.answer_engine_match_value || 0,
           typicalUsesMin: usesMatch ? parseInt(usesMatch[1]) : null,
           typicalUsesMax: usesMatch ? parseInt(usesMatch[2]) : null,
+          secondaryVariants,
         };
       });
     });
