@@ -1,0 +1,13 @@
+{
+  "name": "clearscope-creeper",
+  "version": "1.0.0",
+  "description": "Microservice to extract Research questions and Outline headings from public Clearscope editor pages",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "playwright": "^1.52.0"
+  }
+}
